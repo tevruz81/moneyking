@@ -1,13 +1,17 @@
 name: hacim-bot
 
+# Bot her çalışmada ~9 dakika açık kalır, sonra bir sonraki çalışmayı kendisi başlatır.
+# Zamanlayıcı yalnızca yedektir: zincir koparsa botu yeniden ayağa kaldırır.
+# Botu durdurmak için: Actions → hacim-bot → "..." → Disable workflow.
+
 on:
   schedule:
-    - cron: "*/5 * * * *"   # yedek: zincir koparsa botu yeniden başlatır
-  workflow_dispatch:         # her çalışma bir sonrakini bununla başlatır
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
 
 permissions:
-  contents: write            # state.json'u kaydetmek için
-  actions: write             # bir sonraki çalışmayı başlatmak için
+  contents: write   # state.json'u kaydetmek için
+  actions: write    # bir sonraki çalışmayı başlatmak için
 
 concurrency:
   group: hacim-bot
@@ -15,14 +19,15 @@ concurrency:
 
 jobs:
   run:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04   # Python 3.12 hazır gelir
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: main
 
       - name: Botu çalıştır (yaklaşık 9 dakika)
+        id: bot
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
@@ -30,24 +35,32 @@ jobs:
         run: python3 bot.py
 
       - name: Ayarları kaydet
-        if: always()
+        if: ${{ !cancelled() }}
         run: |
-          if [ -n "$(git status --porcelain state.json)" ]; then
-            git config user.name "hacim-bot"
-            git config user.email "hacim-bot@users.noreply.github.com"
-            git add state.json
-            git commit -m "state guncelle"
-            git pull --rebase -X theirs origin main && git push
+          if [ -z "$(git status --porcelain state.json)" ]; then
+            echo "Değişiklik yok."
+            exit 0
           fi
+          git config user.name "hacim-bot"
+          git config user.email "hacim-bot@users.noreply.github.com"
+          git add state.json
+          git commit -q -m "state güncelle"
+          for deneme in 1 2 3; do
+            git pull -q --rebase -X theirs origin main && git push -q && exit 0
+            echo "Kaydetme denemesi $deneme başarısız, tekrar deneniyor..."
+            sleep 5
+          done
+          exit 1
 
+      # Bot hata ile biterse zincir durur (sonsuz hata döngüsü olmasın); zamanlayıcı yeniden dener.
       - name: Sonraki çalışmayı başlat
-        if: always()
+        if: ${{ !cancelled() && steps.bot.outcome == 'success' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # Sırada bekleyen bir çalışma varsa (ör. zamanlayıcıdan) yenisini başlatma; zincir tek kalsın.
+          # Sırada bekleyen çalışma varsa (ör. zamanlayıcıdan) yenisini başlatma; zincir tek kalsın.
           bekleyen=$(gh run list -R "$GITHUB_REPOSITORY" --workflow hacim-bot.yml --limit 20 \
-            --json status --jq '[.[] | select(.status=="queued" or .status=="pending" or .status=="waiting" or .status=="requested")] | length')
+            --json status --jq '[.[] | select(.status == "queued" or .status == "pending" or .status == "waiting" or .status == "requested")] | length')
           if [ "$bekleyen" = "0" ]; then
             gh workflow run hacim-bot.yml -R "$GITHUB_REPOSITORY" --ref main
           else
