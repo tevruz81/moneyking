@@ -1,0 +1,36 @@
+name: hacim-bot
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"   # 5 dakikada bir uyanır; rapor sıklığını bot kendisi belirler
+  workflow_dispatch:         # Actions sekmesinden elle çalıştırma
+
+permissions:
+  contents: write            # state.json'u repoya kaydetmek için
+
+concurrency:
+  group: hacim-bot
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Botu çalıştır
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python3 bot.py
+
+      - name: Ayarları kaydet
+        run: |
+          if [ -n "$(git status --porcelain state.json)" ]; then
+            git config user.name "hacim-bot"
+            git config user.email "hacim-bot@users.noreply.github.com"
+            git add state.json
+            git commit -m "state guncelle"
+            git push
+          fi
