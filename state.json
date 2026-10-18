@@ -1,17 +1,23 @@
 {
   "coins": [
     "BTC",
-    "ETH"
+    "ETH",
+    "WLD",
+    "SIREN",
+    "AGT"
   ],
   "commands_set": 2,
   "interval": "30m",
   "last_error_slot": "30@2026-10-18T18:00",
-  "last_slot": "30@2026-10-18T17:30",
+  "last_slot": "30@2026-10-18T18:00",
   "last_volumes": {
-    "BTC": 724581509.7011065,
-    "ETH": 339746961.956193
+    "AGT": 460170481.373045,
+    "BTC": 6507262895.14,
+    "ETH": 5857222538.62,
+    "SIREN": 23617496.34916,
+    "WLD": 229969348.7856
   },
-  "offset": 494260709,
+  "offset": 494260733,
   "tz": "Europe/Istanbul",
   "window": [
     0,
