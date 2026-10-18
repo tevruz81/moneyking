@@ -5,9 +5,12 @@
   ],
   "commands_set": true,
   "interval": "30m",
-  "last_slot": null,
-  "last_volumes": {},
-  "offset": 494260699,
+  "last_slot": "30@2026-10-18T17:30",
+  "last_volumes": {
+    "BTC": 724581509.7011065,
+    "ETH": 339746961.956193
+  },
+  "offset": 494260702,
   "tz": "Europe/Istanbul",
   "window": [
     0,
