@@ -1,0 +1,16 @@
+{
+  "coins": [
+    "BTC",
+    "ETH"
+  ],
+  "commands_set": true,
+  "interval": "30m",
+  "last_slot": null,
+  "last_volumes": {},
+  "offset": 0,
+  "tz": "Europe/Istanbul",
+  "window": [
+    0,
+    24
+  ]
+}
