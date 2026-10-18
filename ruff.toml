@@ -1,0 +1,8 @@
+line-length = 120
+target-version = "py312"
+
+[lint]
+select = ["E", "F", "W", "B", "UP", "SIM", "I", "RUF", "PL"]
+# Türkçe metinlerdeki ı, ş gibi harfler "belirsiz karakter" sayılmasın; komut fonksiyonları
+# ortak imzayı paylaştığı için kullanılmayan argüman ve çok dallı fonksiyon uyarıları kapalı.
+ignore = ["RUF001", "RUF002", "RUF003", "PLR0911", "PLR0912", "PLR2004", "PLW0603"]
