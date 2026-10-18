@@ -2,11 +2,12 @@ name: hacim-bot
 
 on:
   schedule:
-    - cron: "*/5 * * * *"   # 5 dakikada bir uyanır; rapor sıklığını bot kendisi belirler
-  workflow_dispatch:         # Actions sekmesinden elle çalıştırma
+    - cron: "*/5 * * * *"   # yedek: zincir koparsa botu yeniden başlatır
+  workflow_dispatch:         # her çalışma bir sonrakini bununla başlatır
 
 permissions:
-  contents: write            # state.json'u repoya kaydetmek için
+  contents: write            # state.json'u kaydetmek için
+  actions: write             # bir sonraki çalışmayı başlatmak için
 
 concurrency:
   group: hacim-bot
@@ -15,19 +16,21 @@ concurrency:
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: main          # sıradaki çalışmalar en güncel ayarlarla başlasın
+          ref: main
 
-      - name: Botu çalıştır
+      - name: Botu çalıştır (yaklaşık 9 dakika)
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          RUN_SECONDS: "540"
         run: python3 bot.py
 
       - name: Ayarları kaydet
+        if: always()
         run: |
           if [ -n "$(git status --porcelain state.json)" ]; then
             git config user.name "hacim-bot"
@@ -35,4 +38,18 @@ jobs:
             git add state.json
             git commit -m "state guncelle"
             git pull --rebase -X theirs origin main && git push
+          fi
+
+      - name: Sonraki çalışmayı başlat
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Sırada bekleyen bir çalışma varsa (ör. zamanlayıcıdan) yenisini başlatma; zincir tek kalsın.
+          bekleyen=$(gh run list -R "$GITHUB_REPOSITORY" --workflow hacim-bot.yml --limit 20 \
+            --json status --jq '[.[] | select(.status=="queued" or .status=="pending" or .status=="waiting" or .status=="requested")] | length')
+          if [ "$bekleyen" = "0" ]; then
+            gh workflow run hacim-bot.yml -R "$GITHUB_REPOSITORY" --ref main
+          else
+            echo "Sırada bekleyen çalışma var, yeni başlatılmadı."
           fi
