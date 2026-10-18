@@ -3,14 +3,15 @@
     "BTC",
     "ETH"
   ],
-  "commands_set": true,
+  "commands_set": 2,
   "interval": "30m",
+  "last_error_slot": "30@2026-10-18T18:00",
   "last_slot": "30@2026-10-18T17:30",
   "last_volumes": {
     "BTC": 724581509.7011065,
     "ETH": 339746961.956193
   },
-  "offset": 494260702,
+  "offset": 494260709,
   "tz": "Europe/Istanbul",
   "window": [
     0,
