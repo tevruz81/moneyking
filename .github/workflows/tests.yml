@@ -1,0 +1,30 @@
+name: testler
+
+# Yalnızca kod değiştiğinde çalışır; botun state.json kayıtları bu iş akışını tetiklemez.
+on:
+  push:
+    paths:
+      - "bot.py"
+      - "tests/**"
+      - "ruff.toml"
+      - ".github/workflows/tests.yml"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Kod stili (ruff)
+        run: |
+          pipx run --spec ruff==0.16.8 ruff check .
+          pipx run --spec ruff==0.16.8 ruff format --check .
+
+      - name: Birim testleri
+        run: python3 -m unittest discover -s tests -v
