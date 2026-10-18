@@ -83,7 +83,7 @@ DEFAULT_STATE: dict[str, Any] = {
     "tz": "Europe/Istanbul",
     "offset": 0,  # Telegram getUpdates konumu
     "last_slot": None,  # en son raporlanan zaman dilimi
-    "history": {},  # coin -> [[ISO zaman, hacim], ...] (yeniden eskiye)
+    "history": {},  # coin -> [[ISO zaman, hacim, fiyat], ...] (yeniden eskiye)
     "commands_set": 0,  # Telegram'a kaydedilen komut menüsü sürümü
 }
 
@@ -416,13 +416,11 @@ def build_report(
         if not ticker:
             rows.append({"coin": coin, "volume": None})
             continue
-        volume = float(ticker["quoteVolume"])
-        hist = [[stamp, volume], *old][:HISTORY_LEN]
+        volume, price = float(ticker["quoteVolume"]), float(ticker["lastPrice"])
+        hist = [[stamp, volume, price], *old][:HISTORY_LEN]
         change = (volume / hist[1][1] - 1) * 100 if len(hist) > 1 and hist[1][1] else None
         new_history[coin] = hist
-        rows.append(
-            {"coin": coin, "volume": volume, "price": float(ticker["lastPrice"]), "change": change, "history": hist}
-        )
+        rows.append({"coin": coin, "volume": volume, "price": price, "change": change, "history": hist})
     if not new_history:
         raise RuntimeError("Binance'ten veri alınamadı")
     rows.sort(key=lambda r: r["volume"] if r["volume"] is not None else -1, reverse=True)
@@ -455,17 +453,32 @@ def _coin_block(row: dict[str, Any], now: datetime) -> str:
     else:
         icon, arrow = ("🟢", "▲") if change > 0 else ("🔴", "▼") if change < 0 else ("⚪", "•")
         trend = f"{arrow} <b>{fmt_pct(change)}</b>"
-    labels = [history_label(t, now) for t, _ in row["history"]]
-    width = max(len(label) for label in labels)
     lines = [
         f"{icon} <b>{coin}</b>  ·  {fmt_price(row['price'])} $",
         f"Hacim {trend}  ·  {fmt_short(row['volume'])} $",
-        *(
-            f"<code>{html.escape(label):>{width}}  {fmt_usdt(v):>16}</code>"
-            for label, (_, v) in zip(labels, row["history"], strict=True)
-        ),
+        *_history_lines(row["history"], now),
     ]
     return "\n".join(lines)
+
+
+def _history_lines(history: list[list[Any]], now: datetime) -> list[str]:
+    """Geçmiş kayıtlarını hizalı sütunlar halinde yazar: saat · o anki fiyat · 24s hacim.
+
+    Fiyat eklenmeden önceki sürümden kalan kayıtlarda fiyat yerine '–' görünür.
+    """
+    cells = [
+        (
+            history_label(entry[0], now),
+            fmt_price(entry[2]) if len(entry) > 2 else "–",
+            fmt_usdt(entry[1]),
+        )
+        for entry in history
+    ]
+    widths = [max(len(cell[i]) for cell in cells) for i in range(3)]
+    return [
+        f"<code>{html.escape(label):>{widths[0]}}  {price:>{widths[1]}}  {volume:>{widths[2]}}</code>"
+        for label, price, volume in cells
+    ]
 
 
 def _report_title(state: dict[str, Any], now: datetime, rows: list[dict[str, Any]]) -> str:
@@ -475,13 +488,14 @@ def _report_title(state: dict[str, Any], now: datetime, rows: list[dict[str, Any
         f"🗓 {now:%d.%m.%Y}  🕒 {now:%H:%M}  ({html.escape(state['tz'])})",
         f"💰 Toplam hacim: <b>{fmt_short(total)} $</b>",
     ]
-    movers = [r for r in rows if r.get("change") is not None]
-    if movers:
-        up = max(movers, key=lambda r: r["change"])
-        down = min(movers, key=lambda r: r["change"])
+    rising = [r for r in rows if (r.get("change") or 0) > 0]
+    falling = [r for r in rows if (r.get("change") or 0) < 0]
+    if rising:
+        up = max(rising, key=lambda r: r["change"])
         lines.append(f"📈 En çok artan: <b>{up['coin']}</b> {fmt_pct(up['change'])}")
-        if down is not up:
-            lines.append(f"📉 En çok düşen: <b>{down['coin']}</b> {fmt_pct(down['change'])}")
+    if falling:
+        down = min(falling, key=lambda r: r["change"])
+        lines.append(f"📉 En çok düşen: <b>{down['coin']}</b> {fmt_pct(down['change'])}")
     lines.append("━━━━━━━━━━━━━━━━━━")
     return "\n".join(lines)
 
@@ -489,8 +503,8 @@ def _report_title(state: dict[str, Any], now: datetime, rows: list[dict[str, Any
 def _report_footer(state: dict[str, Any], now: datetime) -> str:
     footer = (
         "━━━━━━━━━━━━━━━━━━\n"
-        "<i>Coin adının yanında son fiyat (USDT) yer alır.\n"
-        "Hacimler USDT cinsinden 24 saatliktir.\n"
+        "<i>Coin adının yanında son fiyat yer alır.\n"
+        "Satırlar: saat · o anki fiyat · 24 saatlik hacim (USDT).\n"
         "% → bir önceki rapora göre hacim değişimi.</i>"
     )
     nxt = following_report(state, now)
