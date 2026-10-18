@@ -191,7 +191,7 @@ class ReportTests(unittest.TestCase):
         self.assertIn("ilk kayıt", text)
         self.assertIn("⚠️ <b>NOPE</b> — veri alınamadı", text)
         self.assertLess(text.index("<b>BTC</b>"), text.index("<b>ETH</b>"))  # hacme göre sıralı
-        self.assertEqual(history["BTC"], [["2026-10-18T19:30+03:00", 15234567890.12]])
+        self.assertEqual(history["BTC"], [["2026-10-18T19:30+03:00", 15234567890.12, 81162.8]])
         self.assertNotIn("NOPE", history)
 
     def test_change_and_history_limit(self) -> None:
@@ -204,6 +204,21 @@ class ReportTests(unittest.TestCase):
         self.assertIn("En çok artan: <b>BTC</b> +8,82%", texts[0])
         self.assertIn("15.234.567.890", texts[0])
         self.assertIn("14.000.000.000", texts[0])
+
+    def test_history_shows_price_at_each_time(self) -> None:
+        old = [["2026-10-18T19:00+03:00", 14e9, 80950.1], ["2026-10-18T18:30+03:00", 13.5e9]]
+        state = new_state(coins=["BTC"], history={"BTC": old})
+        texts, history = bot.build_report(state, self.now, self.tickers)
+        self.assertEqual(history["BTC"][0][2], 81162.8)
+        self.assertIn("<code>19:30  81.162,80  15.234.567.890</code>", texts[0])
+        self.assertIn("<code>19:00  80.950,10  14.000.000.000</code>", texts[0])
+        self.assertIn("<code>18:30          –  13.500.000.000</code>", texts[0])  # fiyatsız eski kayıt
+
+    def test_summary_lists_only_real_rises_and_falls(self) -> None:
+        history = {"BTC": [["19:00", 14e9]], "ETH": [["19:00", 9e9]]}  # ikisi de artmış
+        texts, _ = bot.build_report(new_state(coins=["BTC", "ETH"], history=history), self.now, self.tickers)
+        self.assertIn("En çok artan: <b>ETH</b> +9,74%", texts[0])
+        self.assertNotIn("En çok düşen", texts[0])
 
     def test_build_report_is_pure(self) -> None:
         state = new_state(coins=["BTC"])
