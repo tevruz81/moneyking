@@ -1,47 +1,74 @@
-# Binance Hacim Botu — Kurulum
+# Binance Futures Hacim Botu
 
-Seçtiğin Binance coinlerinin 24 saatlik hacmini (USDT) Telegram'a gönderir.
-Ücretsizdir; GitHub Actions üzerinde çalışır, sunucu gerekmez.
+Seçilen Binance **Futures (USDT-M perpetual)** coinlerinin **son fiyatını** ve
+**24 saatlik hacmini (USDT)** Telegram'a raporlar. Ücretsizdir; sunucu gerekmez,
+tamamen GitHub Actions üzerinde çalışır.
 
-## 1. Telegram botunu oluştur
-1. Telegram'da **@BotFather**'a `/newbot` yaz, bota bir ad ve kullanıcı adı ver.
-2. Verdiği **token**'ı not al (ör. `123456:ABC...`). Kimseyle paylaşma.
-3. Kendi botunu bul ve **/start** gönder.
+## Rapor örneği
 
-## 2. GitHub reposunu hazırla
-1. GitHub'da yeni bir **Public** repo oluştur (ör. `hacim-bot`).
-   Public olması şart: Actions dakikaları sadece public repolarda sınırsızdır.
-   Token gizli kalır; repoda sadece coin listesi ve ayarlar görünür.
-2. **Add file → Upload files** ile `bot.py` ve `README.md` dosyalarını yükle.
-3. **Add file → Create new file** de, dosya adına tam olarak
-   `.github/workflows/hacim-bot.yml` yaz ve `hacim-bot.yml` içeriğini yapıştır.
+```
+📊 Binance Futures · 24 Saatlik Hacim
+🗓 18.10.2026  🕒 19:30  (Europe/Istanbul)
+💰 Toplam hacim: 25,52 Mr $
+📈 En çok artan: BTC +8,82%
+━━━━━━━━━━━━━━━━━━
+🟢 BTC  ·  81.162,80 $          ← son fiyat
+Hacim ▲ +8,82%  ·  15,23 Mr $   ← bir önceki rapora göre
+19:30    15.234.567.890         ← son 3 hacim (USDT)
+19:00    14.000.000.000
+18:30    13.500.000.000
+```
 
-## 3. Token'ı ekle ve Chat ID'yi öğren
-1. Repo → **Settings → Secrets and variables → Actions → New repository secret**
-   - Ad: `TELEGRAM_BOT_TOKEN`, değer: BotFather'ın verdiği token
-2. **Actions** sekmesi → (istenirse workflow'ları etkinleştir) → **hacim-bot → Run workflow**.
-3. Bot Telegram'da sana **Chat ID**'ni yazar. (Gelmezse bota tekrar `/start` gönderip workflow'u yeniden çalıştır.)
-4. Aynı yerden ikinci secret'ı ekle:
-   - Ad: `TELEGRAM_CHAT_ID`, değer: botun verdiği sayı
+## Komutlar
 
-Gruba göndermek istersen: botu gruba ekle, grupta `/start` yaz; Chat ID eksi ile başlayan sayı olur.
-
-## 4. Kullanım
-Workflow'u bir kez daha elle çalıştır; sonrasında 5 dakikada bir kendiliğinden çalışır.
+Komutlara Telegram'daki **Menü** düğmesinden ulaşılır. Bir komuta uzun basarsan
+gönderilmeden yazı kutusuna gelir.
 
 | Komut | Açıklama |
 |---|---|
-| `/ekle BTC ETH SOL` | Coin ekle (Binance'te USDT paritesi olmalı) |
-| `/sil BTC` · `/sil hepsi` | Coin sil / listeyi temizle |
+| `/ekle` | Coin ekle. Bot sorar, coin adlarını yazarsın: `BTC ETH SOL` (`/ekle BTC ETH` da olur) |
+| `/sil` | Coin sil (butondan seç) · `/sil hepsi` listeyi temizler |
 | `/liste` | Takip edilen coinler |
-| `/aralik 30m` · `1h` · `4h` · `12h` | Gönderim sıklığı |
-| `/saat 09-23` · `/saat 0-24` | Gönderim saatleri (gece yarısını aşabilir: `22-02`) |
-| `/tz Europe/Istanbul` | Saat dilimi |
-| `/durum` | Ayarlar ve sonraki rapor |
+| `/aralik` | Gönderim sıklığı: 30 dk · 1 · 4 · 12 saat |
+| `/saat` | Gönderim saatleri, ör. `09-23`, `0-24` (her zaman), `22-02` (gece yarısını aşar) |
+| `/tz` | Saat dilimi, ör. `Europe/Istanbul` |
+| `/durum` | Ayarlar ve sonraki rapor zamanı |
 | `/simdi` | Raporu hemen gönder |
+| `iptal` | Botun beklediği soruyu iptal eder |
 
-## Bilinmesi gerekenler
-- GitHub zamanlanmış görevleri bazen 5–15 dk gecikir; komut yanıtları ve raporlar buna göre birkaç dakika kayabilir.
-- Raporlar saat dilimine göre hizalıdır: 30m → :00 ve :30, 4h → 00/04/08..., 12h → 00/12.
-- Δ sütunu, bir önceki bildirime göre hacim değişimidir.
-- Veri kaynağı: `data-api.binance.vision` (Binance'in resmi, herkese açık piyasa verisi adresi).
+Raporlar saat dilimine göre hizalıdır: 30 dk → :00 ve :30, 4 saat → 00/04/08…, 12 saat → 00/12.
+
+## Nasıl çalışır
+
+- `.github/workflows/hacim-bot.yml` botu her seferinde ~9 dakika çalıştırır; bot bu sürede
+  mesajlara anında yanıt verir ve zamanı gelen raporu gönderir. Bitince bir sonraki
+  çalışmayı kendisi başlatır, böylece bot kesintisiz açık kalır. 5 dakikalık zamanlayıcı
+  sadece yedektir.
+- Coin listesi ve ayarlar `state.json` dosyasında tutulur ve her çalışmadan sonra repoya kaydedilir.
+- Veri kaynağı Binance Futures API'sidir (`/fapi/v1/exchangeInfo`, `/fapi/v1/ticker/24hr`).
+  GitHub sunucuları ABD'de olduğu için `fapi.binance.com` erişimi engellenir; bot aynı veriyi
+  `www.binance.com/fapi` üzerinden alır.
+
+## Güvenlik
+
+- Bot token'ı ve Chat ID yalnızca **GitHub Secrets**'ta durur; kodda, `state.json`'da ve
+  Actions kayıtlarında görünmez.
+- Bot sadece `TELEGRAM_CHAT_ID` sohbetinden gelen komutları uygular, diğerlerini reddeder.
+
+## Kurulum (sıfırdan)
+
+1. Telegram'da **@BotFather** → `/newbot` ile bot oluştur, token'ı al. Kendi botuna `/start` gönder.
+2. GitHub'da **Public** repo aç (Actions dakikaları public repolarda ücretsizdir) ve dosyaları yükle:
+   `bot.py`, `ruff.toml`, `tests/test_bot.py`, `.github/workflows/hacim-bot.yml`,
+   `.github/workflows/tests.yml`.
+3. Repo → **Settings → Secrets and variables → Actions → New repository secret**:
+   `TELEGRAM_BOT_TOKEN` = BotFather token'ı.
+4. **Actions → hacim-bot → Run workflow**. Bot Telegram'da Chat ID'ni yazar;
+   onu `TELEGRAM_CHAT_ID` secret'ı olarak ekle ve workflow'u bir kez daha çalıştır.
+
+## Yönetim
+
+- **Durdurmak:** Actions → hacim-bot → sağ üstteki `…` → **Disable workflow**.
+  Tekrar başlatmak için **Enable workflow**, ardından **Run workflow**.
+- **Testler:** `python3 -m unittest discover -s tests` (kod değişince GitHub'da otomatik çalışır).
+- **Token yenileme:** BotFather → `/revoke` → yeni token'ı `TELEGRAM_BOT_TOKEN` secret'ına yaz.
