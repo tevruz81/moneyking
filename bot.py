@@ -41,7 +41,7 @@ DEFAULT_STATE = {
     "tz": "Europe/Istanbul",
     "offset": 0,                # Telegram getUpdates konumu
     "last_slot": None,          # en son gönderilen zaman dilimi
-    "last_volumes": {},         # Δ hesaplamak için önceki hacimler
+    "history": {},              # coin -> son hacimler [[saat, hacim], ...] (yeniden eskiye)
     "commands_set": False,
 }
 
@@ -215,43 +215,76 @@ def window_text(window):
 
 # ---------------------------------------------------------------- Rapor
 
+HISTORY_LEN = 3          # raporda gösterilen son hacim sayısı
+MAX_MESSAGE = 3800       # Telegram sınırı 4096; uzun raporlar bölünür
+BLOCK_SEP = "\n\n"
+
+
+def fmt_usdt(v):
+    """15234567890.4 -> '15.234.567.890'"""
+    return f"{v:,.0f}".replace(",", ".")
+
+
+def history_of(state, coin):
+    hist = state.setdefault("history", {}).get(coin)
+    if hist is None and coin in state.get("last_volumes", {}):
+        hist = [["önceki", state["last_volumes"][coin]]]  # eski sürümden kalan değer
+    return hist or []
+
+
 def build_report(state, now):
     coins = state["coins"]
     data = fetch_tickers([c + "USDT" for c in coins])
-    rows, new_vols = [], {}
+    stamp = f"{now:%H:%M}"
+    rows, new_hist = [], {}
     for c in coins:
         d = data.get(c + "USDT")
+        old = history_of(state, c)
         if not d:
-            rows.append((c, None, None))
+            rows.append((c, None, old))
             continue
         vol = float(d["quoteVolume"])
-        prev = state["last_volumes"].get(c)
-        delta = (vol / prev - 1) * 100 if prev else None
-        rows.append((c, vol, delta))
-        new_vols[c] = vol
-    if not new_vols:
+        hist = ([[stamp, vol]] + old)[:HISTORY_LEN]
+        new_hist[c] = hist
+        rows.append((c, vol, hist))
+    if not new_hist:
         raise RuntimeError("Binance'ten veri alınamadı")
 
     rows.sort(key=lambda r: r[1] if r[1] is not None else -1, reverse=True)
-    lines = [f"{'COIN':<8}{'HACIM':>10}{'Δ':>9}", "-" * 27]
-    for c, v, dl in rows:
-        vs = fmt_vol(v) if v is not None else "veri yok"
-        ds = f"{dl:+.1f}%" if dl is not None else "-"
-        lines.append(f"{c:<8}{vs:>10}{ds:>9}")
-    total = sum(new_vols.values())
-    lines += ["-" * 27, f"{'TOPLAM':<8}{fmt_vol(total):>10}"]
+    blocks = []
+    for c, vol, hist in rows:
+        if vol is None:
+            blocks.append(f"{c}  veri yok")
+            continue
+        if len(hist) > 1 and hist[1][1]:
+            dl = (vol / hist[1][1] - 1) * 100
+            head = f"{c}  {'▲' if dl > 0 else '▼' if dl < 0 else '='} {dl:+.2f}%"
+        else:
+            head = f"{c}  (ilk kayıt)"
+        lines = [head] + [f"  {t:>6}  {fmt_usdt(v):>17}" for t, v in hist]
+        blocks.append("\n".join(lines))
 
-    text = (f"📊 <b>Binance Futures 24s Hacim (USDT)</b>\n"
-            f"🕒 {now:%d.%m.%Y %H:%M} ({html.escape(state['tz'])})\n"
-            f"<pre>{html.escape(chr(10).join(lines))}</pre>\n"
-            f"<i>Δ: bir önceki bildirime göre değişim</i>")
-    return text, new_vols
+    title = (f"📊 <b>Binance Futures 24s Hacim (USDT)</b>\n"
+             f"🕒 {now:%d.%m.%Y %H:%M} ({html.escape(state['tz'])})\n")
+    foot = "\n<i>% : bir önceki bildirime göre değişim</i>"
+    messages, cur = [], []
+    for blk in blocks:
+        if cur and len(BLOCK_SEP.join(cur + [blk])) > MAX_MESSAGE:
+            messages.append(cur)
+            cur = []
+        cur.append(blk)
+    messages.append(cur)
+    texts = [(title if i == 0 else "") + f"<pre>{html.escape(BLOCK_SEP.join(m))}</pre>"
+             + (foot if i == len(messages) - 1 else "") for i, m in enumerate(messages)]
+    return texts, new_hist
 
 
 def send_report(state, now):
-    text, new_vols = build_report(state, now)
-    send(text)
-    state["last_volumes"] = new_vols
+    texts, new_hist = build_report(state, now)
+    for t in texts:
+        send(t)
+    state.setdefault("history", {}).update(new_hist)
+    state.pop("last_volumes", None)
 
 
 # ---------------------------------------------------------------- Komutlar
@@ -309,14 +342,14 @@ def cmd_sil(state, args):
         items = [(f"❌ {c}", f"sil:{c}") for c in state["coins"]] + [("🗑 Hepsini sil", "sil:hepsi")]
         return ("Silmek istediğin coine dokun (ya da adını yaz):", buttons(items))
     if args[0].lower() in ("hepsi", "tumu", "tümü", "all"):
-        state["coins"], state["last_volumes"] = [], {}
+        state["coins"], state["history"] = [], {}
         return "🗑 Liste temizlendi."
     removed, missing = [], []
     for a in args:
         c = norm_coin(a)
         if c in state["coins"]:
             state["coins"].remove(c)
-            state["last_volumes"].pop(c, None)
+            state.get("history", {}).pop(c, None)
             removed.append(c)
         elif c:
             missing.append(c)
