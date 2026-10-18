@@ -21,7 +21,8 @@ CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
 STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "state.json")
 
 # Binance USDⓈ-M Futures (perpetual) piyasa verisi.
-BINANCE = "https://fapi.binance.com/fapi/v1"
+# fapi.binance.com ABD IP'lerini (GitHub sunucuları) engeller; aynı veri www.binance.com üzerinden de sunulur.
+BINANCE_BASES = ["https://www.binance.com/fapi/v1", "https://fapi.binance.com/fapi/v1"]
 
 INTERVALS = {"30m": 30, "1h": 60, "4h": 240, "12h": 720}
 INTERVAL_ALIASES = {
@@ -112,7 +113,15 @@ def ask(placeholder):
 
 
 def binance(path, **params):
-    return http_json(f"{BINANCE}/{path}", params=params or None)
+    last = None
+    for base in BINANCE_BASES:
+        try:
+            return http_json(f"{base}/{path}", params=params or None)
+        except urllib.error.HTTPError as e:
+            last = e
+            if e.code not in (403, 451) and e.code < 500:
+                raise
+    raise last
 
 
 # ---------------------------------------------------------------- State
