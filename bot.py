@@ -225,6 +225,18 @@ def fmt_usdt(v):
     return f"{v:,.0f}".replace(",", ".")
 
 
+def fmt_short(v):
+    """15234567890 -> '15,23 Mr'"""
+    for div, suf in ((1e9, "Mr"), (1e6, "Mn"), (1e3, "B")):
+        if v >= div:
+            return f"{v / div:.2f} {suf}".replace(".", ",")
+    return f"{v:.0f}"
+
+
+def fmt_pct(p):
+    return f"{p:+.2f}%".replace(".", ",")
+
+
 def history_of(state, coin):
     hist = state.setdefault("history", {}).get(coin)
     if hist is None and coin in state.get("last_volumes", {}):
@@ -241,32 +253,50 @@ def build_report(state, now):
         d = data.get(c + "USDT")
         old = history_of(state, c)
         if not d:
-            rows.append((c, None, old))
+            rows.append((c, None, None, old))
             continue
         vol = float(d["quoteVolume"])
         hist = ([[stamp, vol]] + old)[:HISTORY_LEN]
         new_hist[c] = hist
-        rows.append((c, vol, hist))
+        dl = (vol / hist[1][1] - 1) * 100 if len(hist) > 1 and hist[1][1] else None
+        rows.append((c, vol, dl, hist))
     if not new_hist:
         raise RuntimeError("Binance'ten veri alınamadı")
-
     rows.sort(key=lambda r: r[1] if r[1] is not None else -1, reverse=True)
-    blocks = []
-    for c, vol, hist in rows:
-        if vol is None:
-            blocks.append(f"{c}  veri yok")
-            continue
-        if len(hist) > 1 and hist[1][1]:
-            dl = (vol / hist[1][1] - 1) * 100
-            head = f"{c}  {'▲' if dl > 0 else '▼' if dl < 0 else '='} {dl:+.2f}%"
-        else:
-            head = f"{c}  (ilk kayıt)"
-        lines = [head] + [f"  {t:>6}  {fmt_usdt(v):>17}" for t, v in hist]
-        blocks.append("\n".join(lines))
 
-    title = (f"📊 <b>Binance Futures 24s Hacim (USDT)</b>\n"
-             f"🕒 {now:%d.%m.%Y %H:%M} ({html.escape(state['tz'])})\n")
-    foot = "\n<i>% : bir önceki bildirime göre değişim</i>"
+    blocks = []
+    for c, vol, dl, hist in rows:
+        if vol is None:
+            blocks.append(f"⚠️ <b>{c}</b> — veri alınamadı")
+            continue
+        if dl is None:
+            head = f"⚪ <b>{c}</b>  ·  ilk kayıt"
+        else:
+            icon, arrow = ("🟢", "▲") if dl > 0 else ("🔴", "▼") if dl < 0 else ("⚪", "•")
+            head = f"{icon} <b>{c}</b>  {arrow} <b>{fmt_pct(dl)}</b>"
+        head += f"  ·  {fmt_short(vol)} $"
+        lines = [f"<code>{html.escape(t):>6}  {fmt_usdt(v):>16}</code>" for t, v in hist]
+        blocks.append("\n".join([head] + lines))
+
+    total = sum(r[1] for r in rows if r[1] is not None)
+    movers = [r for r in rows if r[2] is not None]
+    summary = f"💰 Toplam hacim: <b>{fmt_short(total)} $</b>"
+    if movers:
+        up = max(movers, key=lambda r: r[2])
+        down = min(movers, key=lambda r: r[2])
+        summary += f"\n📈 En çok artan: <b>{up[0]}</b> {fmt_pct(up[2])}"
+        if down is not up:
+            summary += f"\n📉 En çok düşen: <b>{down[0]}</b> {fmt_pct(down[2])}"
+
+    nxt = next_send({**state, "last_slot": slot_id(now, INTERVALS[state["interval"]])}, now)
+    title = (f"📊 <b>Binance Futures · 24 Saatlik Hacim</b>\n"
+             f"🗓 {now:%d.%m.%Y}  🕒 {now:%H:%M}  ({html.escape(state['tz'])})\n"
+             f"{summary}\n━━━━━━━━━━━━━━━━━━")
+    foot = ("━━━━━━━━━━━━━━━━━━\n<i>Rakamlar USDT cinsinden 24 saatlik hacimdir.\n"
+            "% → bir önceki rapora göre değişim.</i>")
+    if nxt:
+        foot += f"\n⏭ Sonraki rapor: {nxt:%H:%M}"
+
     messages, cur = [], []
     for blk in blocks:
         if cur and len(BLOCK_SEP.join(cur + [blk])) > MAX_MESSAGE:
@@ -274,8 +304,10 @@ def build_report(state, now):
             cur = []
         cur.append(blk)
     messages.append(cur)
-    texts = [(title if i == 0 else "") + f"<pre>{html.escape(BLOCK_SEP.join(m))}</pre>"
-             + (foot if i == len(messages) - 1 else "") for i, m in enumerate(messages)]
+    texts = []
+    for i, m in enumerate(messages):
+        parts = ([title] if i == 0 else []) + [BLOCK_SEP.join(m)] + ([foot] if i == len(messages) - 1 else [])
+        texts.append("\n\n".join(parts))
     return texts, new_hist
 
 
@@ -365,7 +397,8 @@ def cmd_sil(state, args):
 def cmd_liste(state, _):
     if not state["coins"]:
         return "📋 Liste boş. Eklemek için /ekle"
-    return f"📋 Takip edilen coinler ({len(state['coins'])}):\n" + ", ".join(state["coins"])
+    items = "\n".join(f"{i}. <b>{c}</b>" for i, c in enumerate(state["coins"], 1))
+    return f"📋 <b>Takip edilen coinler</b> ({len(state['coins'])})\n\n{items}\n\n➕ /ekle   ➖ /sil"
 
 
 def cmd_aralik(state, args):
@@ -425,13 +458,13 @@ def cmd_durum(state, _):
     now = datetime.now(ZoneInfo(state["tz"]))
     nxt = next_send(state, now)
     nxt_txt = "birkaç dakika içinde" if nxt is None else f"{nxt:%d.%m %H:%M} civarı"
-    return (f"⚙️ <b>Durum</b>\n"
-            f"Coinler: {', '.join(state['coins']) or '-'}\n"
-            f"Sıklık: {INTERVAL_LABELS[state['interval']]}\n"
-            f"Gönderim saatleri: {window_text(state['window'])}\n"
-            f"Saat dilimi: {state['tz']}\n"
+    return (f"⚙️ <b>Bot Ayarları</b>\n\n"
+            f"🪙 Coinler: {', '.join(state['coins']) or '-'}\n"
+            f"⏱ Sıklık: {INTERVAL_LABELS[state['interval']]}  (/aralik)\n"
+            f"🕒 Gönderim saatleri: {window_text(state['window'])}  (/saat)\n"
+            f"🌍 Saat dilimi: {state['tz']}  (/tz)\n\n"
             f"Şu an: {now:%d.%m.%Y %H:%M}\n"
-            f"Sonraki rapor: {nxt_txt}")
+            f"⏭ Sonraki rapor: {nxt_txt}")
 
 
 def cmd_simdi(state, _):
