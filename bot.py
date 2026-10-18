@@ -74,8 +74,7 @@ HELP_TEXT = """🤖 <b>Binance Hacim Botu</b>
 /simdi — raporu hemen gönder
 iptal — bekleyen soruyu iptal et
 
-ℹ️ Bot 5 dakikada bir uyanır: ilk komutun yanıtı birkaç dakika sürebilir,
-sonrakiler yazışma devam ettikçe anında gelir."""
+ℹ️ Komut menüsünde bir komuta uzun basarsan komut gönderilmeden yazı kutusuna gelir."""
 
 
 # ---------------------------------------------------------------- HTTP
@@ -581,6 +580,7 @@ def maybe_report(state):
 SESSION_MAX = 240   # biri yazışıyorsa bot en fazla bu kadar saniye açık kalır
 SESSION_IDLE = 90   # son mesajdan bu kadar saniye sonra kapanır
 COMMANDS_VERSION = 2
+RUN_SECONDS = int(os.environ.get("RUN_SECONDS", "0") or 0)  # >0 ise sürekli mod
 
 
 def main():
@@ -596,9 +596,19 @@ def main():
         except Exception as e:
             print(f"Komut menüsü ayarlanamadı: {e}", file=sys.stderr)
 
-    # İlk kontrol beklemesizdir. Mesaj geldiyse kullanıcı aktif demektir:
-    # bot kısa bir süre açık kalıp sonraki komutlara anında yanıt verir.
     start = time.time()
+    if RUN_SECONDS:
+        # Sürekli mod: bot RUN_SECONDS boyunca açık kalır, komutlara anında yanıt verir,
+        # raporları zamanında gönderir. Workflow ardından bir sonraki çalışmayı başlatır.
+        process_updates(state)
+        maybe_report(state)
+        while (remaining := RUN_SECONDS - (time.time() - start)) > 3:
+            process_updates(state, wait=int(min(25, remaining - 2)))
+            maybe_report(state)
+        save_state(state)
+        return
+
+    # Kısa mod: mesaj geldiyse bot bir süre açık kalıp sonraki komutlara anında yanıt verir.
     last_activity = start if process_updates(state) else None
     maybe_report(state)
     while last_activity is not None:
