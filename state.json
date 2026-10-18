@@ -8,7 +8,8 @@
     "EIGEN",
     "SOL",
     "AAVE",
-    "ELSA"
+    "ELSA",
+    "COLLECT"
   ],
   "commands_set": 3,
   "history": {
@@ -169,7 +170,7 @@
   "interval": "30m",
   "last_error_slot": "30@2026-10-18T18:00",
   "last_slot": "30@2026-10-18T22:30",
-  "offset": 494260764,
+  "offset": 494260766,
   "tz": "Europe/Istanbul",
   "window": [
     0,
