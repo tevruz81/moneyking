@@ -1,0 +1,42 @@
+name: hacim-bot-bekci
+
+# Bekçi: 10 dakikada bir botun çalışıp çalışmadığına bakar. Çalışan ya da sırada bekleyen
+# bir hacim-bot çalışması yoksa (ör. GitHub geçici hata verdiyse) botu yeniden başlatır.
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions:
+  actions: write   # hacim-bot'u başlatmak için
+
+concurrency:
+  group: hacim-bot-bekci
+  cancel-in-progress: true
+
+jobs:
+  kontrol:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Bot çalışıyor mu?
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Çalışan bir çalışma ya da son 30 dakikada sıraya girmiş bir çalışma varsa bot ayakta sayılır.
+          aktif=$(gh run list -R "$GITHUB_REPOSITORY" --workflow hacim-bot.yml --limit 10 \
+            --json status,createdAt --jq '[.[] | select(.status == "in_progress" or
+              ((.status == "queued" or .status == "pending" or .status == "waiting" or .status == "requested")
+               and (now - (.createdAt | fromdateiso8601)) < 1800))] | length')
+          if [ "$aktif" != "0" ]; then
+            echo "Bot çalışıyor."
+            exit 0
+          fi
+          echo "Bot çalışmıyor, yeniden başlatılıyor."
+          for deneme in 1 2 3; do
+            gh workflow run hacim-bot.yml -R "$GITHUB_REPOSITORY" --ref main && exit 0
+            echo "Başlatma denemesi $deneme başarısız, tekrar deneniyor..."
+            sleep 20
+          done
+          exit 1
