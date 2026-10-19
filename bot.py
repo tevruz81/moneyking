@@ -13,12 +13,15 @@ Ortam değişkenleri:
     TELEGRAM_BOT_TOKEN  (zorunlu) BotFather token'ı
     TELEGRAM_CHAT_ID    botu kullanabilecek tek sohbet; boşsa kurulum modu
     RUN_SECONDS         >0 ise bot bu süre boyunca açık kalır (sürekli mod)
+    NEXT_RUN_WORKFLOW   sürekli modda bir sonraki çalışmayı başlatacak iş akışı (ör. hacim-bot.yml);
+                        GH_TOKEN, GITHUB_REPOSITORY ve GITHUB_REF_NAME ile birlikte kullanılır
 """
 
 from __future__ import annotations
 
 import contextlib
 import copy
+import functools
 import html
 import json
 import logging
@@ -46,6 +49,7 @@ RUN_SECONDS = int(os.environ.get("RUN_SECONDS", "0") or 0)
 STATE_FILE = Path(__file__).resolve().with_name("state.json")
 
 TELEGRAM_API = "https://api.telegram.org/bot{token}/{method}"
+GITHUB_API = "https://api.github.com"
 # fapi.binance.com ABD IP'lerini (GitHub sunucuları) 451 ile engeller;
 # aynı Futures verisi www.binance.com üzerinden de sunulur.
 BINANCE_BASES = ("https://www.binance.com/fapi/v1", "https://fapi.binance.com/fapi/v1")
@@ -60,6 +64,8 @@ MAX_COINS = 40
 HISTORY_LEN = 3  # raporda gösterilen son hacim sayısı
 MAX_MESSAGE = 3800  # Telegram sınırı 4096 karakter; uzun raporlar bölünür
 COMMANDS_VERSION = 3  # komut menüsü değiştiğinde artırılır
+NEXT_RUN_AFTER = 60  # sürekli mod: bot bu kadar sağlıklı çalıştıktan sonra sonraki çalışmayı sıraya koyar (sn)
+NEXT_RUN_MARKER = STATE_FILE.with_name(".next_run_queued")  # iş akışına "sıraya kondu" bilgisini verir
 
 INTERVALS = {"30m": 30, "1h": 60, "4h": 240, "12h": 720}
 INTERVAL_LABELS = {"30m": "30 dakika", "1h": "1 saat", "4h": "4 saat", "12h": "12 saat"}
@@ -779,8 +785,11 @@ def parse_update(update: dict[str, Any]) -> tuple[str, str, str | None]:
     return chat, text, callback_id
 
 
-def process_updates(state: dict[str, Any], wait: int = 0) -> int:
-    """Yeni mesajları ve buton tıklamalarını işler; işlenen güncelleme sayısını döndürür."""
+def process_updates(state: dict[str, Any], wait: int = 0) -> int | None:
+    """Yeni mesajları ve buton tıklamalarını işler.
+
+    İşlenen güncelleme sayısını, Telegram'a ulaşılamadıysa None döndürür.
+    """
     try:
         result = tg(
             "getUpdates",
@@ -792,7 +801,7 @@ def process_updates(state: dict[str, Any], wait: int = 0) -> int:
     except Exception:
         log.exception("Telegram güncellemeleri alınamadı")
         time.sleep(ERROR_PAUSE)
-        return 0
+        return None
     updates = result.get("result", [])
     for update in updates:
         state["offset"] = update["update_id"] + 1
@@ -844,14 +853,74 @@ def confirm_updates(state: dict[str, Any]) -> None:
         tg("getUpdates", offset=state["offset"], timeout=0, limit=1)
 
 
-def run_continuous(state: dict[str, Any], seconds: int) -> None:
-    """Belirtilen süre boyunca mesajları dinler ve zamanı gelen raporları gönderir."""
-    deadline = time.monotonic() + seconds
+def dispatch_workflow(repo: str, workflow: str, ref: str, token: str) -> None:
+    """GitHub Actions iş akışını başlatır (workflow_dispatch); başarısız olursa istisna fırlatır."""
+    request = urllib.request.Request(
+        f"{GITHUB_API}/repos/{repo}/actions/workflows/{workflow}/dispatches",
+        data=json.dumps({"ref": ref}).encode(),
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "User-Agent": "hacim-bot/2.0",
+        },
+    )
+    with urllib.request.urlopen(request, timeout=HTTP_TIMEOUT):
+        pass
+
+
+class NextRun:
+    """Sürekli modda bir sonraki GitHub Actions çalışmasını sıraya koyar.
+
+    Bot NEXT_RUN_AFTER saniye boyunca sağlıklı çalıştıktan sonra (Telegram'a ulaşılabiliyorsa)
+    sonraki çalışmayı başlatır. Yeni çalışma eşzamanlılık grubunda bekler ve bu çalışma biter
+    bitmez başlar. GitHub API'si geçici hata verirse çalışma süresince tekrar tekrar denenir;
+    böylece tek bir hata zinciri koparmaz. Bot açılır açılmaz çöküyorsa sıraya koyma yapılmaz,
+    sonsuz hata döngüsü oluşmaz.
+    """
+
+    def __init__(self, dispatch: Callable[[], None], marker: Path = NEXT_RUN_MARKER) -> None:
+        self._dispatch = dispatch
+        self.marker = marker
+        self.queued = False
+
+    @classmethod
+    def from_env(cls) -> NextRun | None:
+        """Ortam değişkenleri eksikse (ör. yerel çalıştırma) None döndürür."""
+        workflow = os.environ.get("NEXT_RUN_WORKFLOW", "").strip()
+        repo = os.environ.get("GITHUB_REPOSITORY", "").strip()
+        token = os.environ.get("GH_TOKEN", "").strip()
+        if not (workflow and repo and token):
+            return None
+        ref = os.environ.get("GITHUB_REF_NAME", "main")
+        return cls(functools.partial(dispatch_workflow, repo, workflow, ref, token))
+
+    def maybe_queue(self, elapsed: float, healthy: bool) -> None:
+        if self.queued or not healthy or elapsed < NEXT_RUN_AFTER:
+            return
+        try:
+            self._dispatch()
+        except (urllib.error.URLError, TimeoutError) as exc:
+            log.warning("Sonraki çalışma sıraya konamadı (%s), tekrar denenecek", exc)
+            return
+        self.queued = True
+        self.marker.touch()
+        log.info("Sonraki çalışma sıraya kondu")
+
+
+def run_continuous(state: dict[str, Any], seconds: int, next_run: NextRun | None = None) -> None:
+    """Belirtilen süre boyunca mesajları dinler, zamanı gelen raporları gönderir ve
+    (yapılandırılmışsa) bir sonraki çalışmayı sıraya koyar."""
+    started = time.monotonic()
+    deadline = started + seconds
     process_updates(state)
     maybe_report(state)
     while (remaining := deadline - time.monotonic()) > 3:
-        process_updates(state, wait=int(min(LONG_POLL, remaining - 2)))
+        healthy = process_updates(state, wait=int(min(LONG_POLL, remaining - 2))) is not None
         maybe_report(state)
+        if next_run:
+            next_run.maybe_queue(time.monotonic() - started, healthy)
 
 
 def run_short(state: dict[str, Any]) -> None:
@@ -878,7 +947,7 @@ def main() -> int:
     register_menu(state)
     try:
         if RUN_SECONDS > 0:
-            run_continuous(state, RUN_SECONDS)
+            run_continuous(state, RUN_SECONDS, NextRun.from_env())
         else:
             run_short(state)
     finally:
