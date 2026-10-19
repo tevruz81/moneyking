@@ -1,12 +1,11 @@
 name: hacim-bot
 
-# Bot her çalışmada ~9 dakika açık kalır, sonra bir sonraki çalışmayı kendisi başlatır.
-# Zamanlayıcı yalnızca yedektir: zincir koparsa botu yeniden ayağa kaldırır.
-# Botu durdurmak için: Actions → hacim-bot → "..." → Disable workflow.
+# Bot her çalışmada ~9 dakika açık kalır. Açıldıktan kısa süre sonra bir sonraki çalışmayı
+# kendisi sıraya koyar; yeni çalışma bu bitince hemen başlar, böylece bot kesintisiz çalışır.
+# Zincir yine de koparsa hacim-bot-bekci iş akışı botu yeniden başlatır.
+# Botu durdurmak için: önce hacim-bot-bekci, sonra hacim-bot → "..." → Disable workflow.
 
 on:
-  schedule:
-    - cron: "*/5 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -32,6 +31,8 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           RUN_SECONDS: "540"
+          NEXT_RUN_WORKFLOW: hacim-bot.yml
+          GH_TOKEN: ${{ github.token }}
         run: python3 bot.py
 
       - name: Ayarları kaydet
@@ -52,17 +53,16 @@ jobs:
           done
           exit 1
 
-      # Bot hata ile biterse zincir durur (sonsuz hata döngüsü olmasın); zamanlayıcı yeniden dener.
-      - name: Sonraki çalışmayı başlat
-        if: ${{ !cancelled() && steps.bot.outcome == 'success' }}
+      # Bot sonraki çalışmayı normalde kendisi sıraya koyar; koyamadıysa burada tekrar denenir.
+      # Bot hata ile biterse zincir durur (sonsuz hata döngüsü olmasın); bekçi iş akışı yeniden dener.
+      - name: Sonraki çalışmayı başlat (gerekirse)
+        if: ${{ !cancelled() && steps.bot.outcome == 'success' && hashFiles('.next_run_queued') == '' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # Sırada bekleyen çalışma varsa (ör. zamanlayıcıdan) yenisini başlatma; zincir tek kalsın.
-          bekleyen=$(gh run list -R "$GITHUB_REPOSITORY" --workflow hacim-bot.yml --limit 20 \
-            --json status --jq '[.[] | select(.status == "queued" or .status == "pending" or .status == "waiting" or .status == "requested")] | length')
-          if [ "$bekleyen" = "0" ]; then
-            gh workflow run hacim-bot.yml -R "$GITHUB_REPOSITORY" --ref main
-          else
-            echo "Sırada bekleyen çalışma var, yeni başlatılmadı."
-          fi
+          for deneme in 1 2 3 4 5; do
+            gh workflow run hacim-bot.yml -R "$GITHUB_REPOSITORY" --ref main && exit 0
+            echo "Başlatma denemesi $deneme başarısız, tekrar deneniyor..."
+            sleep 20
+          done
+          exit 1
