@@ -41,9 +41,11 @@ Raporlar saat dilimine göre hizalıdır: 30 dk → :00 ve :30, 4 saat → 00/04
 ## Nasıl çalışır
 
 - `.github/workflows/hacim-bot.yml` botu her seferinde ~9 dakika çalıştırır; bot bu sürede
-  mesajlara anında yanıt verir ve zamanı gelen raporu gönderir. Bitince bir sonraki
-  çalışmayı kendisi başlatır, böylece bot kesintisiz açık kalır. 5 dakikalık zamanlayıcı
-  sadece yedektir.
+  mesajlara anında yanıt verir ve zamanı gelen raporu gönderir. Açıldıktan 1 dakika sonra
+  bir sonraki çalışmayı kendisi sıraya koyar (GitHub hata verirse tekrar dener); yeni çalışma
+  bu bitince başlar, böylece bot kesintisiz açık kalır.
+- `.github/workflows/hacim-bot-bekci.yml` 10 dakikada bir botun çalışıp çalışmadığına bakar;
+  zincir herhangi bir nedenle koparsa botu yeniden başlatır.
 - Coin listesi ve ayarlar `state.json` dosyasında tutulur ve her çalışmadan sonra repoya kaydedilir.
 - Veri kaynağı Binance Futures API'sidir (`/fapi/v1/exchangeInfo`, `/fapi/v1/ticker/24hr`).
   GitHub sunucuları ABD'de olduğu için `fapi.binance.com` erişimi engellenir; bot aynı veriyi
@@ -60,7 +62,7 @@ Raporlar saat dilimine göre hizalıdır: 30 dk → :00 ve :30, 4 saat → 00/04
 1. Telegram'da **@BotFather** → `/newbot` ile bot oluştur, token'ı al. Kendi botuna `/start` gönder.
 2. GitHub'da **Public** repo aç (Actions dakikaları public repolarda ücretsizdir) ve dosyaları yükle:
    `bot.py`, `ruff.toml`, `tests/test_bot.py`, `.github/workflows/hacim-bot.yml`,
-   `.github/workflows/tests.yml`.
+   `.github/workflows/hacim-bot-bekci.yml`, `.github/workflows/tests.yml`.
 3. Repo → **Settings → Secrets and variables → Actions → New repository secret**:
    `TELEGRAM_BOT_TOKEN` = BotFather token'ı.
 4. **Actions → hacim-bot → Run workflow**. Bot Telegram'da Chat ID'ni yazar;
@@ -68,7 +70,8 @@ Raporlar saat dilimine göre hizalıdır: 30 dk → :00 ve :30, 4 saat → 00/04
 
 ## Yönetim
 
-- **Durdurmak:** Actions → hacim-bot → sağ üstteki `…` → **Disable workflow**.
-  Tekrar başlatmak için **Enable workflow**, ardından **Run workflow**.
+- **Durdurmak:** Actions → önce **hacim-bot-bekci**, sonra **hacim-bot** → sağ üstteki `…` →
+  **Disable workflow**. Sırada bekleyen bir hacim-bot çalışması varsa onu da **Cancel run** ile iptal et.
+  Tekrar başlatmak için ikisini de **Enable workflow** yap, ardından hacim-bot → **Run workflow**.
 - **Testler:** `python3 -m unittest discover -s tests` (kod değişince GitHub'da otomatik çalışır).
 - **Token yenileme:** BotFather → `/revoke` → yeni token'ı `TELEGRAM_BOT_TOKEN` secret'ına yaz.
