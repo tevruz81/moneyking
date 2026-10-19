@@ -391,7 +391,7 @@ class UpdateTests(unittest.TestCase):
     def test_telegram_outage_pauses(self) -> None:
         self.tg.side_effect = urllib.error.URLError("down")
         with mock.patch("time.sleep") as sleep, self.assertLogs("hacim-bot", "ERROR"):
-            self.assertEqual(bot.process_updates(self.state), 0)
+            self.assertIsNone(bot.process_updates(self.state))
         sleep.assert_called_once_with(bot.ERROR_PAUSE)
 
     def test_report_error_is_announced_once_per_slot(self) -> None:
@@ -456,6 +456,65 @@ class ScheduleTests(unittest.TestCase):
             bot.maybe_report(state)
         self.assertEqual(len(sent), 1)
         self.assertIsNotNone(state["last_slot"])
+
+
+class NextRunTests(unittest.TestCase):
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.marker = Path(tmp.name) / ".next_run_queued"
+        self.dispatch = mock.Mock()
+        self.next_run = bot.NextRun(self.dispatch, self.marker)
+
+    def test_waits_until_bot_is_healthy_for_a_while(self) -> None:
+        self.next_run.maybe_queue(bot.NEXT_RUN_AFTER - 1, healthy=True)
+        self.next_run.maybe_queue(bot.NEXT_RUN_AFTER + 1, healthy=False)
+        self.dispatch.assert_not_called()
+        self.assertFalse(self.marker.exists())
+
+    def test_queues_once(self) -> None:
+        for elapsed in (bot.NEXT_RUN_AFTER, bot.NEXT_RUN_AFTER + 30):
+            self.next_run.maybe_queue(elapsed, healthy=True)
+        self.dispatch.assert_called_once_with()
+        self.assertTrue(self.marker.exists())
+
+    def test_retries_after_github_error(self) -> None:
+        error = urllib.error.HTTPError("u", 500, "Server Error", None, None)  # type: ignore[arg-type]
+        self.dispatch.side_effect = [error, None]
+        with self.assertLogs("hacim-bot", "WARNING"):
+            self.next_run.maybe_queue(bot.NEXT_RUN_AFTER, healthy=True)
+        self.assertFalse(self.marker.exists())
+        self.next_run.maybe_queue(bot.NEXT_RUN_AFTER + 25, healthy=True)
+        self.assertEqual(self.dispatch.call_count, 2)
+        self.assertTrue(self.marker.exists())
+
+    def test_from_env(self) -> None:
+        env = {"NEXT_RUN_WORKFLOW": "hacim-bot.yml", "GITHUB_REPOSITORY": "o/r", "GH_TOKEN": "t"}
+        with mock.patch.dict(os.environ, env, clear=False):
+            next_run = bot.NextRun.from_env()
+        assert next_run is not None
+        with mock.patch("urllib.request.urlopen") as urlopen:
+            next_run._dispatch()
+        request = urlopen.call_args.args[0]
+        self.assertEqual(
+            request.full_url, "https://api.github.com/repos/o/r/actions/workflows/hacim-bot.yml/dispatches"
+        )
+        self.assertEqual(request.get_method(), "POST")
+        self.assertEqual(json.loads(request.data), {"ref": os.environ.get("GITHUB_REF_NAME", "main")})
+        with mock.patch.dict(os.environ, {"GH_TOKEN": ""}, clear=False):
+            self.assertIsNone(bot.NextRun.from_env())
+
+    def test_continuous_loop_queues_next_run(self) -> None:
+        clock = iter(range(0, 1000, 30))
+        next_run = mock.Mock()
+        with (
+            mock.patch("time.monotonic", side_effect=lambda: next(clock)),
+            mock.patch.object(bot, "process_updates", return_value=0),
+            mock.patch.object(bot, "maybe_report"),
+        ):
+            bot.run_continuous(new_state(), 120, next_run)
+        self.assertTrue(next_run.maybe_queue.called)
+        self.assertTrue(all(call.args[1] for call in next_run.maybe_queue.call_args_list))
 
 
 if __name__ == "__main__":
