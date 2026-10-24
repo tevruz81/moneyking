@@ -8,7 +8,8 @@
     "COLLECT",
     "PHA",
     "IOST",
-    "IRYS"
+    "IRYS",
+    "ANIME"
   ],
   "commands_set": 3,
   "history": {
@@ -169,8 +170,7 @@
   "interval": "30m",
   "last_error_slot": "30@2026-10-18T18:00",
   "last_slot": "30@2026-10-24T21:00",
-  "offset": 494260783,
-  "pending": "sil",
+  "offset": 494260785,
   "tz": "Europe/Istanbul",
   "window": [
     0,
