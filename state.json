@@ -10,7 +10,8 @@
     "IRYS",
     "ANIME",
     "T",
-    "JCT"
+    "JCT",
+    "BEAT"
   ],
   "commands_set": 3,
   "history": {
@@ -205,7 +206,7 @@
   "interval": "30m",
   "last_error_slot": "30@2026-10-18T18:00",
   "last_slot": "30@2026-10-27T10:00",
-  "offset": 494260791,
+  "offset": 494260793,
   "tz": "Europe/Istanbul",
   "window": [
     0,
