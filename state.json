@@ -8,7 +8,8 @@
     "BEAT",
     "AIN",
     "INIT",
-    "LYN"
+    "LYN",
+    "BLUR"
   ],
   "commands_set": 3,
   "history": {
@@ -169,7 +170,7 @@
   "interval": "30m",
   "last_error_slot": "30@2026-10-18T18:00",
   "last_slot": "30@2026-11-02T21:30",
-  "offset": 494260816,
+  "offset": 494260818,
   "tz": "Europe/Istanbul",
   "window": [
     0,
