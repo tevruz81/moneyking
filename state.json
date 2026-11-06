@@ -9,7 +9,8 @@
     "LYN",
     "BLUR",
     "AGT",
-    "ELSA"
+    "ELSA",
+    "ONE"
   ],
   "commands_set": 3,
   "history": {
@@ -187,7 +188,7 @@
   "interval": "30m",
   "last_error_slot": "30@2026-10-18T18:00",
   "last_slot": "30@2026-11-06T23:30",
-  "offset": 494260826,
+  "offset": 494260828,
   "tz": "Europe/Istanbul",
   "window": [
     0,
