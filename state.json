@@ -6,7 +6,8 @@
     "AIN",
     "LYN",
     "AGT",
-    "STO"
+    "STO",
+    "PHA"
   ],
   "commands_set": 3,
   "history": {
@@ -133,7 +134,7 @@
   "interval": "30m",
   "last_error_slot": "30@2026-10-18T18:00",
   "last_slot": "30@2026-11-17T17:30",
-  "offset": 494260841,
+  "offset": 494260843,
   "tz": "Europe/Istanbul",
   "window": [
     0,
