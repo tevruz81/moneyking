@@ -7,7 +7,8 @@
     "LYN",
     "AGT",
     "STO",
-    "PHA"
+    "PHA",
+    "BLUR"
   ],
   "commands_set": 3,
   "history": {
@@ -151,8 +152,7 @@
   "interval": "30m",
   "last_error_slot": "30@2026-10-18T18:00",
   "last_slot": "30@2026-11-25T22:30",
-  "offset": 494260844,
-  "pending": "ekle",
+  "offset": 494260845,
   "tz": "Europe/Istanbul",
   "window": [
     0,
